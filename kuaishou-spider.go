@@ -5,89 +5,21 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 )
 
-const defaultUrl string = "http://live.kuaishou.com/profile/3xra9abv3xq8i34"
+const defaultID string = "3xra9abv3xq8i34"
 
-const videoListQueryFormat string = `{publicFeeds(principalId: "%s", pcursor: "0", count: %d) {
-   pcursor
-   live {
-     user {
-       id
-       kwaiId
-       eid
-       profile
-       name
-       living
-       __typename
-     }
-     watchingCount
-     src
-     title
-     gameId
-     gameName
-     categoryId
-     liveStreamId
-     playUrls {
-       quality
-       url
-       __typename
-     }
-     followed
-     type
-     living
-     redPack
-     liveGuess
-     anchorPointed
-     latestViewed
-     expTag
-     __typename
-   }
-   list {
-     photoId
-     caption
-     thumbnailUrl
-     poster
-     viewCount
-     likeCount
-     commentCount
-     timestamp
-     workType
-     type
-     useVideoPlayer
-     imgUrls
-     imgSizes
-     magicFace
-     musicName
-     location
-     liked
-     onlyFollowerCanComment
-     relativeHeight
-     width
-     height
-     user {
-       id
-       eid
-       name
-       profile
-       __typename
-     }
-     expTag
-     __typename
-   }
-   __typename
-  }}`
+const videoListQueryPayLoad string = `{"operationName":"publicFeedsQuery","variables":{"principalId":"%s","pcursor":"0","count":1000},"query":"query publicFeedsQuery($principalId: String, $pcursor: String, $count: Int) {\n  publicFeeds(principalId: $principalId, pcursor: $pcursor, count: $count) {\n    pcursor\n    live {\n      user {\n        id\n        avatar\n        name\n        __typename\n      }\n      watchingCount\n      poster\n      coverUrl\n      caption\n      id\n      playUrls {\n        quality\n        url\n        __typename\n      }\n      quality\n      gameInfo {\n        category\n        name\n        pubgSurvival\n        type\n        kingHero\n        __typename\n      }\n      hasRedPack\n      liveGuess\n      expTag\n      __typename\n    }\n    list {\n      id\n      thumbnailUrl\n      poster\n      workType\n      type\n      useVideoPlayer\n      imgUrls\n      imgSizes\n      magicFace\n      musicName\n      caption\n      location\n      liked\n      onlyFollowerCanComment\n      relativeHeight\n      timestamp\n      width\n      height\n      counts {\n        displayView\n        displayLike\n        displayComment\n        __typename\n      }\n      user {\n        id\n        eid\n        name\n        avatar\n        __typename\n      }\n      expTag\n      __typename\n    }\n    __typename\n  }\n}\n"}`
 
-const videoDetailQueryFormat string = `{feedById(photoId:"%s",principalId:"%s"){currentWork{playUrl,__typename},__typename}}`
+const videoDetailQueryPayLoad string = `{"operationName":"SharePageQuery","variables":{"photoId":"%s","principalId":"%s"},"query":"query SharePageQuery($principalId: String, $photoId: String) {\n feedById(principalId: $principalId, photoId: $photoId) {\n    currentWork {\n      playUrl\n      __typename\n    }\n    __typename\n  }\n}\n"}`
 
-const hqlUrl string = `https://live.kuaishou.com/graphql`
+const hqlURL string = `https://live.kuaishou.com/m_graphql`
 
 type SingleVideoInfo struct {
-	PhotoID                string        `json:"photoId"`
+	ID                	   string        `json:"id"`
 	Caption                string        `json:"caption"`
 	ThumbnailURL           string        `json:"thumbnailUrl"`
 	Poster                 string        `json:"poster"`
@@ -148,26 +80,15 @@ func main() {
 }
 
 func mainLoop() {
-	fmt.Print("请输入待爬取的个人首页url(不输入爬取默认用户视频 例如：http://live.kuaishou.com/profile/3xra9abv3xq8i34)：")
-	var homeUrl string = defaultUrl
-	_, err := fmt.Scanln(&homeUrl)
+	fmt.Print("请输入待爬取的用户快手ID(在用户的快手主页可查看 不输入爬取默认的用户(ID=3xra9abv3xq8i34)):")
+	var id string = defaultID
+	_, err := fmt.Scanln(&id)
 	if err != nil {
 		fmt.Println("你貌似没有输入任何数据，将默认为你爬取默认用户的视频...")
-		homeUrl = defaultUrl
+		id = defaultID
 	}
-	fmt.Printf("爬取的主页是：%v\n", homeUrl)
-
-	slice := strings.Split(homeUrl, "/")
-	var last string = slice[len(slice)-1]
-	index := strings.Index(last, "?")
-	var id string
-	if index <= 0 {
-		id = last
-	} else {
-		id = substring(last, 0, index)
-	}
+	fmt.Printf("爬取的用户ID是：%v\n", id)
 	fmt.Printf("即将开始爬取(爬取默认超时10s)...id=%v\n", id)
-
 	c := make(chan []SingleVideoInfo)
 	go getVideoListByInterface(id, c)
 	var videos []SingleVideoInfo
@@ -201,9 +122,8 @@ func mainLoop() {
 		fmt.Printf("所有视频将保存到：%v\n", wd+"videos/"+id+"/")
 		time.Sleep(time.Second)
 		ch := make(chan bool, count)
-
 		for index, video := range videos {
-			go getVideoDetail(index, video.PhotoID, video.User.ID, video.ThumbnailURL, id, ch)
+			go getVideoDetail(index, video.ID, video.User.ID, video.ThumbnailURL, id, ch)
 		}
 		var succ, failed int = 0, 0
 		for b := range ch {
@@ -224,25 +144,10 @@ func mainLoop() {
 	}
 }
 
-func substring(source string, start int, end int) string {
-	var r = []rune(source)
-	length := len(r)
-
-	if start < 0 || end > length || start > end {
-		return ""
-	}
-
-	if start == 0 && end == length {
-		return source
-	}
-
-	return string(r[start:end])
-}
-
 //通过接口拿到剩下的视频
 func getVideoListByInterface(id string, ch chan []SingleVideoInfo) {
-	query := fmt.Sprintf(videoListQueryFormat, id, 1000)
-	body, err := getHttpResponse(query)
+	query := fmt.Sprintf(videoListQueryPayLoad, id)
+	body, err := getHTTPResponse(query)
 
 	if err != nil {
 		return
@@ -261,9 +166,9 @@ func getVideoListByInterface(id string, ch chan []SingleVideoInfo) {
 }
 
 //爬取单个视频详情
-func getVideoDetail(index int, photoId, id, imageUrl, uid string, ch chan bool) {
-	query := fmt.Sprintf(videoDetailQueryFormat, photoId, id)
-	body, err := getHttpResponse(query)
+func getVideoDetail(index int, photoID, id, imageURL, uid string, ch chan bool) {
+	query := fmt.Sprintf(videoDetailQueryPayLoad, photoID, id)
+	body, err := getHTTPResponse(query)
 
 	if err != nil {
 		ch <- false
@@ -277,32 +182,30 @@ func getVideoDetail(index int, photoId, id, imageUrl, uid string, ch chan bool) 
 		return
 	}
 
-	playUrl := videoDetail.Data.FeedByID.CurrentWork.PlayURL
+	playURL := videoDetail.Data.FeedByID.CurrentWork.PlayURL
 
-	downloadImageToDisk(imageUrl, uid)
-	downloadVideoToDisk(playUrl, uid)
+	downloadImageToDisk(imageURL, uid)
+	downloadVideoToDisk(playURL, uid)
 	ch <- true
 }
 
-func getHttpResponse(query string) (buf []byte, err error) {
-	values := url.Values{}
-	values.Set("query", query)
-	req, err := http.NewRequest(http.MethodPost,
-		hqlUrl,
-		strings.NewReader(values.Encode()))
+func getHTTPResponse(query string) (buf []byte, err error) {
+	req, err := http.NewRequest(http.MethodPost, hqlURL, strings.NewReader(query))
 
 	if err != nil {
 		return
 	}
 
-	req.Header.Set("Accept", "*/*")
-	req.Header.Add("Content-Type",
-		"application/x-www-form-urlencoded; param=value")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36")
-
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36")
+	
 	resp, err := http.DefaultClient.Do(req)
 
 	if err != nil {
+		return
+	}
+
+	if resp.StatusCode != 200 {
 		return
 	}
 
