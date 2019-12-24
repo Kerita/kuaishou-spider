@@ -1,5 +1,8 @@
 package main
 
+//author:keguoyu
+//仅用于技术学习 不用于商业用途
+
 import (
 	"encoding/json"
 	"fmt"
@@ -8,6 +11,18 @@ import (
 	"os"
 	"strings"
 	"time"
+	"math/rand"
+)
+
+const (
+	TextBlack = iota + 30
+	TextRed
+	TextGreen
+	TextYellow
+	TextBlue
+	TextMagenta
+	TextCyan
+	TextWhite
 )
 
 const defaultID string = "3xra9abv3xq8i34"
@@ -17,6 +32,21 @@ const videoListQueryPayLoad string = `{"operationName":"publicFeedsQuery","varia
 const videoDetailQueryPayLoad string = `{"operationName":"SharePageQuery","variables":{"photoId":"%s","principalId":"%s"},"query":"query SharePageQuery($principalId: String, $photoId: String) {\n feedById(principalId: $principalId, photoId: $photoId) {\n    currentWork {\n      playUrl\n      __typename\n    }\n    __typename\n  }\n}\n"}`
 
 const hqlURL string = `https://live.kuaishou.com/m_graphql`
+
+var userAgentList []string = []string{"Mozilla/5.0 (compatible, MSIE 10.0, Windows NT, DigExt)",
+	"Mozilla/4.0 (compatible, MSIE 7.0, Windows NT 5.1, 360SE)",
+	"Mozilla/4.0 (compatible, MSIE 8.0, Windows NT 6.0, Trident/4.0)",
+	"Mozilla/5.0 (compatible, MSIE 9.0, Windows NT 6.1, Trident/5.0,",
+	"Opera/9.80 (Windows NT 6.1, U, en) Presto/2.8.131 Version/11.11",
+	"Mozilla/4.0 (compatible, MSIE 7.0, Windows NT 5.1, TencentTraveler 4.0)",
+	"Mozilla/5.0 (Windows, U, Windows NT 6.1, en-us) AppleWebKit/534.50 (KHTML, like Gecko) Version/5.1 Safari/534.50",
+	"Mozilla/5.0 (Macintosh, Intel Mac OS X 10_7_0) AppleWebKit/535.11 (KHTML, like Gecko) Chrome/17.0.963.56 Safari/535.11",
+	"Mozilla/5.0 (Macintosh, U, Intel Mac OS X 10_6_8, en-us) AppleWebKit/534.50 (KHTML, like Gecko) Version/5.1 Safari/534.50",
+	"Mozilla/5.0 (Linux, U, Android 3.0, en-us, Xoom Build/HRI39) AppleWebKit/534.13 (KHTML, like Gecko) Version/4.0 Safari/534.13",
+	"Mozilla/5.0 (iPad, U, CPU OS 4_3_3 like Mac OS X, en-us) AppleWebKit/533.17.9 (KHTML, like Gecko) Version/5.0.2 Mobile/8J2 Safari/6533.18.5",
+	"Mozilla/4.0 (compatible, MSIE 7.0, Windows NT 5.1, Trident/4.0, SE 2.X MetaSr 1.0, SE 2.X MetaSr 1.0, .NET CLR 2.0.50727, SE 2.X MetaSr 1.0)",
+	"Mozilla/5.0 (iPhone, U, CPU iPhone OS 4_3_3 like Mac OS X, en-us) AppleWebKit/533.17.9 (KHTML, like Gecko) Version/5.0.2 Mobile/8J2 Safari/6533.18.5",
+	"MQQBrowser/26 Mozilla/5.0 (Linux, U, Android 2.3.7, zh-cn, MB200 Build/GRJ22, CyanogenMod-7) AppleWebKit/533.1 (KHTML, like Gecko) Version/4.0 Mobile Safari/533.1"}
 
 type SingleVideoInfo struct {
 	ID                	   string        `json:"id"`
@@ -80,33 +110,33 @@ func main() {
 }
 
 func mainLoop() {
-	fmt.Print("请输入待爬取的用户快手ID(在用户的快手主页可查看 不输入爬取默认的用户(ID=3xra9abv3xq8i34)):")
+	fmt.Print("Please input the id that will be spided: ")
 	var id string = defaultID
 	_, err := fmt.Scanln(&id)
 	if err != nil {
-		fmt.Println("你貌似没有输入任何数据，将默认为你爬取默认用户的视频...")
+		fmt.Println("Your input is invalid, will spide default user who's id is 3xm9nrxtd9qbb3w")
 		id = defaultID
 	}
-	fmt.Printf("爬取的用户ID是：%v\n", id)
-	fmt.Printf("即将开始爬取(爬取默认超时10s)...id=%v\n", id)
+	fmt.Printf("Will spide the data of %v, timeout is 10s \n", id)
 	c := make(chan []SingleVideoInfo)
 	go getVideoListByInterface(id, c)
 	var videos []SingleVideoInfo
 	start := time.Now().Second()
 	select {
 	case videos = <-c:
-		fmt.Printf("数据爬取完成，耗时%v秒\n", time.Now().Second()-start)
+		fmt.Printf("Get data complete, it costs %vs\n", time.Now().Second()-start)
 		close(c)
 	case <-time.After(10 * time.Second):
 		close(c)
-		fmt.Println("数据爬取超时...")
+		fmt.Println("Get data timeout")
 		selectMenu()
 		return
 	}
 
 	var count = len(videos)
+
 	if count == 0 {
-		fmt.Println("爬取到网页中的有效视频数量是0...这有可能是因为页面请求失败,可以选择爬取别的主页")
+		fmt.Println("The valid data is 0, you may try other ids")
 		selectMenu()
 		return
 	} else {
@@ -114,34 +144,80 @@ func mainLoop() {
 		_ = os.Mkdir("kuaishou_spider_videos", os.ModePerm)
 		_ = os.Mkdir("kuaishou_spider_images"+"/"+id, os.ModePerm)
 		_ = os.Mkdir("kuaishou_spider_videos"+"/"+id, os.ModePerm)
-		fmt.Printf("爬取到网页中的有效视频数量是%v\n", len(videos))
+		fmt.Printf("The number of videos is %v\n", len(videos))
 		time.Sleep(time.Second)
-		fmt.Println("即将开始下载封面图和视频...")
+		fmt.Println("Will download images and videos...")
 		wd, _ := os.Getwd()
-		fmt.Printf("所有封面图将保存到：%v\n", wd+"images/"+id+"/")
-		fmt.Printf("所有视频将保存到：%v\n", wd+"videos/"+id+"/")
+		fmt.Printf("All images will be saved at %v\n", wd+"images/"+id+"/")
+		fmt.Printf("All videos will be saved at %v\n", wd+"videos/"+id+"/")
 		time.Sleep(time.Second)
 		ch := make(chan bool, count)
 		for index, video := range videos {
+			fmt.Println(video.ID,",",video.Caption)
 			go getVideoDetail(index, video.ID, video.User.ID, video.ThumbnailURL, id, ch)
 		}
 		var succ, failed int = 0, 0
+		var done int = 0
 		for b := range ch {
 			// 每次从ch中接收数据，表明一个活动的协程结束
-			count--
+			done++
 			// 当所有活动的协程都结束时，关闭管道
-			if count == 0 {
+			if done == count {
 				close(ch)
 			}
+			// percent := int(float32(done) * 100.0 / float32(count))
+			// show(percent, count)
+			updateProgress(done,count)
 			if b {
 				succ++
 			} else {
 				failed++
 			}
 		}
-		fmt.Printf("%v个任务成功,%v个任务失败\n", succ, failed)
+
+		fmt.Printf("\n%v succed, %v failed\n", succ, failed)
 		selectMenu()
 	}
+}
+
+//用于更新进度 我们最多展示50个# 如果不足50那么就展示那么多
+func updateProgress(done, total int) {
+	var showCount int
+	if total < 50 {
+		showCount = total
+	} else {
+		showCount = 50
+	}
+	arr := make([]string, showCount)
+
+	percent := float32(done) / float32(total)
+
+	show := int(percent * float32(showCount))
+
+	for j := 0;j < showCount; j++ {
+		if j <= show {
+			arr[j] = "#"
+		} else {
+			arr[j] = " "
+		}
+	}
+	bar := fmt.Sprintf("[%s]", strings.Join(arr, ""))
+	dis := int(show * 100 / showCount)
+    fmt.Printf("\r%s %%%d", bar, dis)
+}
+
+func show(percent, total int) {
+    middle := int(percent * total / 100.0)
+    arr := make([]string, total)
+    for j := 0; j < total; j++ {
+        if j <= middle-1 {
+            arr[j] = "#"
+        }  else {
+            arr[j] = " "
+        }
+    }
+    bar := fmt.Sprintf("[%s]", strings.Join(arr, ""))
+    fmt.Printf("\r%s %%%d", bar, percent)
 }
 
 //通过接口拿到剩下的视频
@@ -184,12 +260,18 @@ func getVideoDetail(index int, photoID, id, imageURL, uid string, ch chan bool) 
 
 	playURL := videoDetail.Data.FeedByID.CurrentWork.PlayURL
 
+	if playURL == "" {
+		fmt.Println("error photoId=",photoID,",id=",id)
+		panic("error")
+	}
+
 	downloadImageToDisk(imageURL, uid)
 	downloadVideoToDisk(playURL, uid)
 	ch <- true
 }
 
 func getHTTPResponse(query string) (buf []byte, err error) {
+	// fmt.Println("query=",query)
 	req, err := http.NewRequest(http.MethodPost, hqlURL, strings.NewReader(query))
 
 	if err != nil {
@@ -197,7 +279,9 @@ func getHTTPResponse(query string) (buf []byte, err error) {
 	}
 
 	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36")
+	req.Header.Add("User-Agent", getRandomUserAgent())
+	req.Header.Add("Connection", "keep-alive")
+	req.Header.Add("Cookie" ,"clientid=3; did=web_8cc7fb39cbb74656ab5616ca05577583; client_key=65890b29; didv=1577092573000; userId=224866748; userId=224866748; kuaishou.live.bfb1s=3e261140b0cf7444a0ba411c6f227d88; kuaishou.live.web_st=ChRrdWFpc2hvdS5saXZlLndlYi5zdBKgAS_4HNcabTk1EWoNnD3-2JYWyyFejF50w0OfgFprUgEj99ffcHabzKHrIejI3uhLBhqh7osAPHyLdC9jmNADP9RXY78XPhiSN0Ab1bhKZwZYcf5naeGTPpHk2OCP8TCE9KzoYlV0y6TLtXD-o_wAsWa5lMJv8cdOhmOMGjF4EcYTRZWBMejAE5APDAcM5qgMN-AT1vqXGbFZwlUlOs9akokaEqVj6czba05AmU7FMveU3Qsu3iIgQ8GsDp6asscOGTAy0RQHzGEX3kIggSEupjC11-HN9h0oBTAB; kuaishou.live.web_ph=c6f5d0ff8e5b68734e8fa9d8962381538acd")
 	
 	resp, err := http.DefaultClient.Do(req)
 
@@ -212,6 +296,8 @@ func getHTTPResponse(query string) (buf []byte, err error) {
 	defer resp.Body.Close()
 
 	buf, err = ioutil.ReadAll(resp.Body)
+
+	// fmt.Println(string(buf))
 
 	return buf, err
 }
@@ -256,12 +342,7 @@ func getBytesResp(url string) (buf []byte, err error) {
 
 //写入文件
 func saveFile(fileName string, buf []byte) {
-	err := ioutil.WriteFile(fileName, buf, 0644)
-	if err != nil {
-		fmt.Printf("文件 %v ----> 写入失败，原因%v\n", fileName, err)
-	} else {
-		fmt.Printf("文件 %v ----> 写入成功\n", fileName)
-	}
+	_  = ioutil.WriteFile(fileName, buf, 0644)
 }
 
 //获取写入的文件名
@@ -271,8 +352,17 @@ func getFileName(root, id, url string) (fileName string) {
 	return
 }
 
+func SetColor(msg string, conf, bg, text int) string {
+    return fmt.Sprintf("%c[%d;%d;%dm%s%c[0m", 0x1B, conf, bg, text, msg, 0x1B)
+}
+
+func getRandomUserAgent() string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	return userAgentList[r.Intn(len(userAgentList))]
+}
+
 func selectMenu() {
-	fmt.Println("输入1继续爬取别的用户视频,输入其它退出")
+	fmt.Println("Press 1 to continue, press others to exit")
 	var input string
 	_, err := fmt.Scanln(&input)
 	if err != nil {
