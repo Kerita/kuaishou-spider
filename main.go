@@ -153,7 +153,7 @@ func mainLoop() {
 		time.Sleep(time.Second)
 		ch := make(chan bool, count)
 		for index, video := range videos {
-			fmt.Println(video.ID,",",video.Caption)
+			// fmt.Println(video.ID,",",video.Caption)
 			go getVideoDetail(index, video.ID, video.User.ID, video.ThumbnailURL, id, ch)
 		}
 		var succ, failed int = 0, 0
@@ -259,11 +259,6 @@ func getVideoDetail(index int, photoID, id, imageURL, uid string, ch chan bool) 
 	}
 
 	playURL := videoDetail.Data.FeedByID.CurrentWork.PlayURL
-
-	if playURL == "" {
-		fmt.Println("error photoId=",photoID,",id=",id)
-		panic("error")
-	}
 
 	downloadImageToDisk(imageURL, uid)
 	downloadVideoToDisk(playURL, uid)
