@@ -2,6 +2,7 @@ package main
 
 //author:keguoyu
 //仅用于技术学习 不用于商业用途
+//function：输入指定的快手用户的ID，可以爬取该用户所有的视频
 
 import (
 	"encoding/json"
@@ -32,6 +33,8 @@ const videoListQueryPayLoad string = `{"operationName":"publicFeedsQuery","varia
 const videoDetailQueryPayLoad string = `{"operationName":"SharePageQuery","variables":{"photoId":"%s","principalId":"%s"},"query":"query SharePageQuery($principalId: String, $photoId: String) {\n feedById(principalId: $principalId, photoId: $photoId) {\n    currentWork {\n      playUrl\n      __typename\n    }\n    __typename\n  }\n}\n"}`
 
 const hqlURL string = `https://live.kuaishou.com/m_graphql`
+
+const folderName string = "SpiderFolder"
 
 var userAgentList []string = []string{"Mozilla/5.0 (compatible, MSIE 10.0, Windows NT, DigExt)",
 	"Mozilla/4.0 (compatible, MSIE 7.0, Windows NT 5.1, 360SE)",
@@ -105,30 +108,33 @@ type VideoDetail struct {
 }
 
 func main() {
-	fmt.Println("\t\t*****Welcome to kuaishou-spider by keguoyu*****")
+	fmt.Println("\t\t*****Welcome to kuaishou-spider developed by keguoyu*****")
 	mainLoop()
 }
 
 func mainLoop() {
-	fmt.Print("Please input the id that will be spided: ")
+	fmt.Print("请输入用户ID: ")
+
 	var id string = defaultID
 	_, err := fmt.Scanln(&id)
 	if err != nil {
-		fmt.Println("Your input is invalid, will spide default user who's id is 3xm9nrxtd9qbb3w")
+		fmt.Println("没有输入，爬取默认ID（ID=3xra9abv3xq8i34） ")
 		id = defaultID
 	}
-	fmt.Printf("Will spide the data of %v, timeout is 10s \n", id)
+
+	fmt.Println("开始爬取...爬取超时时长为10秒 \n")
+
 	c := make(chan []SingleVideoInfo)
 	go getVideoListByInterface(id, c)
 	var videos []SingleVideoInfo
 	start := time.Now().Second()
 	select {
 	case videos = <-c:
-		fmt.Printf("Get data complete, it costs %vs\n", time.Now().Second()-start)
+		fmt.Printf("数据爬取成功，耗时%vs\n", time.Now().Second()-start)
 		close(c)
 	case <-time.After(10 * time.Second):
 		close(c)
-		fmt.Println("Get data timeout")
+		fmt.Println("数据爬取超时")
 		selectMenu()
 		return
 	}
@@ -136,28 +142,35 @@ func mainLoop() {
 	var count = len(videos)
 
 	if count == 0 {
-		fmt.Println("The valid data is 0, you may try other ids")
+		fmt.Println("爬取成功，但是有效数据量为0，可稍后重试")
 		selectMenu()
 		return
 	} else {
-		_ = os.Mkdir("kuaishou_spider_images", os.ModePerm)
-		_ = os.Mkdir("kuaishou_spider_videos", os.ModePerm)
-		_ = os.Mkdir("kuaishou_spider_images"+"/"+id, os.ModePerm)
-		_ = os.Mkdir("kuaishou_spider_videos"+"/"+id, os.ModePerm)
-		fmt.Printf("The number of videos is %v\n", len(videos))
+		_ = os.Mkdir(folderName, os.ModePerm)
+		_ = os.Mkdir(getSaveRootDir(id), os.ModePerm)
+		_ = os.Mkdir(getSaveRootDir(id), os.ModePerm)
+		fmt.Printf("爬取到有效数据量是%v\n", len(videos))
 		time.Sleep(time.Second)
-		fmt.Println("Will download images and videos...")
+		fmt.Println("即将开始下载视频及图片...\n")
 		wd, _ := os.Getwd()
-		fmt.Printf("All images will be saved at %v\n", wd+"images/"+id+"/")
-		fmt.Printf("All videos will be saved at %v\n", wd+"videos/"+id+"/")
+		fmt.Println(wd)
+		fmt.Printf("视频保存在 %v\n\n", wd + "/" + folderName + "/" + id + "/")
 		time.Sleep(time.Second)
 		ch := make(chan bool, count)
 		for index, video := range videos {
-			// fmt.Println(video.ID,",",video.Caption)
 			go getVideoDetail(index, video.ID, video.User.ID, video.ThumbnailURL, id, ch)
 		}
 		var succ, failed int = 0, 0
 		var done int = 0
+
+		var showCount int
+		if count < 50 {
+			showCount = count
+		} else {
+			showCount = 50
+		}
+		arr := make([]string, showCount)
+
 		for b := range ch {
 			// 每次从ch中接收数据，表明一个活动的协程结束
 			done++
@@ -165,9 +178,7 @@ func mainLoop() {
 			if done == count {
 				close(ch)
 			}
-			// percent := int(float32(done) * 100.0 / float32(count))
-			// show(percent, count)
-			updateProgress(done,count)
+			updateProgress(done, count, showCount, arr)
 			if b {
 				succ++
 			} else {
@@ -175,25 +186,15 @@ func mainLoop() {
 			}
 		}
 
-		fmt.Printf("\n%v succed, %v failed\n", succ, failed)
+		fmt.Printf("\n%v 成功, %v 失败\n\n", succ, failed)
 		selectMenu()
 	}
 }
 
 //用于更新进度 我们最多展示50个# 如果不足50那么就展示那么多
-func updateProgress(done, total int) {
-	var showCount int
-	if total < 50 {
-		showCount = total
-	} else {
-		showCount = 50
-	}
-	arr := make([]string, showCount)
-
+func updateProgress(done, total ,showCount int, arr []string) {
 	percent := float32(done) / float32(total)
-
 	show := int(percent * float32(showCount))
-
 	for j := 0;j < showCount; j++ {
 		if j <= show {
 			arr[j] = "#"
@@ -201,26 +202,11 @@ func updateProgress(done, total int) {
 			arr[j] = " "
 		}
 	}
-	bar := fmt.Sprintf("[%s]", strings.Join(arr, ""))
+	bar := setColor(fmt.Sprintf("[%s]", strings.Join(arr, "")),0,0,TextGreen)
 	dis := int(show * 100 / showCount)
     fmt.Printf("\r%s %%%d", bar, dis)
 }
 
-func show(percent, total int) {
-    middle := int(percent * total / 100.0)
-    arr := make([]string, total)
-    for j := 0; j < total; j++ {
-        if j <= middle-1 {
-            arr[j] = "#"
-        }  else {
-            arr[j] = " "
-        }
-    }
-    bar := fmt.Sprintf("[%s]", strings.Join(arr, ""))
-    fmt.Printf("\r%s %%%d", bar, percent)
-}
-
-//通过接口拿到剩下的视频
 func getVideoListByInterface(id string, ch chan []SingleVideoInfo) {
 	query := fmt.Sprintf(videoListQueryPayLoad, id)
 	body, err := getHTTPResponse(query)
@@ -260,9 +246,17 @@ func getVideoDetail(index int, photoID, id, imageURL, uid string, ch chan bool) 
 
 	playURL := videoDetail.Data.FeedByID.CurrentWork.PlayURL
 
-	downloadImageToDisk(imageURL, uid)
-	downloadVideoToDisk(playURL, uid)
-	ch <- true
+	if playURL == "" {
+		ch <- false
+		return
+	}
+
+	err = downloadVideoToDisk(playURL, uid)
+	if err == nil {
+		ch <- true
+	} else {
+		ch <- false
+	}
 }
 
 func getHTTPResponse(query string) (buf []byte, err error) {
@@ -297,25 +291,15 @@ func getHTTPResponse(query string) (buf []byte, err error) {
 	return buf, err
 }
 
-func downloadVideoToDisk(url, uid string) {
+func downloadVideoToDisk(url, uid string) error {
 	buf, err := getBytesResp(url)
 	if err != nil {
-		return
+		return err
 	}
 
-	fileName := getFileName("kuaishou_spider_videos/", uid, url)
+	fileName := getFileName(getSaveRootDir(uid) + string(os.PathSeparator) , uid, url)
 	saveFile(fileName, buf)
-
-}
-
-//下载图片
-func downloadImageToDisk(url, uid string) {
-	buf, err := getBytesResp(url)
-	if err != nil {
-		return
-	}
-	fileName := getFileName("kuaishou_spider_images/", uid, url)
-	saveFile(fileName, buf)
+	return nil
 }
 
 //获取响应字节流
@@ -343,11 +327,16 @@ func saveFile(fileName string, buf []byte) {
 //获取写入的文件名
 func getFileName(root, id, url string) (fileName string) {
 	splits := strings.Split(url, "/")
-	fileName = root + id + "/" + splits[len(splits)-1]
+	fileName = root + splits[len(splits)-1]
 	return
 }
 
-func SetColor(msg string, conf, bg, text int) string {
+//当前目录的父目录/id/
+func getSaveRootDir(id string) string {
+	return folderName + string(os.PathSeparator) + id
+}
+
+func setColor(msg string, conf, bg, text int) string {
     return fmt.Sprintf("%c[%d;%d;%dm%s%c[0m", 0x1B, conf, bg, text, msg, 0x1B)
 }
 
@@ -357,7 +346,7 @@ func getRandomUserAgent() string {
 }
 
 func selectMenu() {
-	fmt.Println("Press 1 to continue, press others to exit")
+	fmt.Println("Press 1 to continue, press enter to exit")
 	var input string
 	_, err := fmt.Scanln(&input)
 	if err != nil {
